@@ -1,0 +1,149 @@
+function predictLabels = AdaBoosting( trainInstances, trainLabels, testInstances, testLabels )
+
+    iterNum = 50;
+    % 初始化inst权值
+    InstWeight = ones(1,size(trainInstances,1))/size(trainInstances,1);
+    e = zeros(iterNum,1);
+    classifyWeights = zeros( 1,iterNum );
+    classifer = cell( iterNum,1 );
+    classiferLabel = zeros( iterNum,1 );
+    
+    for iter = 1:iterNum
+       % 随机从训练样本中选取一半训练分类器
+       
+       [tempList] = RandomSelect( InstWeight, 0.7 );
+       index = length(tempList);
+       
+       disp('Training decision tree ...');
+       tree = classregtree( trainInstances(tempList(1:index),:), trainLabels(tempList(1:index)) );
+       
+       
+       disp('Training SVM...');
+       opt = [' -t 2 -s 0 -c 1000 -e 0.001'];
+       %opt = [' -t 2 -s 0 -w1 10000 -w2 12000 -w3 14000 -w4 16000 -w-1 8000'];
+       svmStruct = svmtrain(trainLabels(tempList(1:index)),trainInstances(tempList(1:index),:),opt);
+
+       disp('Training Random Forest...');
+       RFmodel = classRF_train(  trainInstances(tempList(1:index),:), trainLabels(tempList(1:index)), 1000 );
+      
+       %对训练样本分类测试
+       tempH_1 = zeros(1,size(trainInstances,1));
+       temp_1 = eval(tree,trainInstances);
+       temp_1 = round(temp_1);
+       temp_1(temp_1==0) = 1;
+       temp_1(temp_1<0) = -1;
+       temp_1(temp_1>4) = 4;
+       tempH_1 = temp_1';
+     
+       
+       [tempH_2,b] = svmpredict(trainLabels,trainInstances,svmStruct);
+       tempH_2 = tempH_2';
+       
+       [tempH_3, votes, prediction_per_tree] = classRF_predict(trainInstances,RFmodel);
+       tempH_3 = tempH_3';
+       
+       %统计错分个数
+       errorArr = [sum(IsNotEqual(tempH_1,trainLabels')),sum(IsNotEqual(tempH_2,trainLabels')),sum(IsNotEqual(tempH_3,trainLabels'))];
+       [a,b] = sort(errorArr);
+
+       if b(1)==1
+           tempH = tempH_1;
+           classifer{iter,1} = tree;
+ 
+       elseif b(1)==2
+           tempH = tempH_2;
+           classifer{iter,1} = svmStruct;
+       else
+           tempH = tempH_3;
+           classifer{iter,1} = RFmodel;
+       end
+       % 记录分类器标签
+       classiferLabel(iter,1) = b(1);
+       
+       % 计算错误率
+       e(iter) = sum(InstWeight.*IsNotEqual(tempH,trainLabels'))/size(trainInstances,1);
+     
+       %是否终止循环
+       if( e(iter)>=0.5 )
+           iter = iter - 1;
+           InstWeight = ones(1,size(trainInstances,1))/size(trainInstances,1);
+           continue;
+       end
+       
+       %求分类器权值
+       classifyWeight(iter) = 0.5*log((1-e(iter))/e(iter));
+       %将更新的样本权值归一化
+       for i = 1:size(trainInstances,1)
+           if trainLabels(i)==tempH(i)
+               isequal = 1;
+           else
+               isequal = -1;
+           end
+           tempInstWeight(i) = InstWeight(i)*exp(-classifyWeight(iter)*isequal);
+       end
+       tempInstWeight = tempInstWeight/sum(tempInstWeight);
+       %更新样本权值
+       InstWeight = tempInstWeight;
+   end
+   
+   h = cell( iter, 1 );
+   result = zeros( 5, size(testInstances,1) );
+   
+   for i= 1:iterNum
+       %分类并统计
+       if classiferLabel(i) == 1
+           %save 'classifer.mat' classifer;
+           tree = classifer{i,1};
+           temp = eval( tree, testInstances );
+           
+           temp = round(temp);
+           temp(temp<=0) = -1;
+           temp(temp>=4) = 4;
+        
+           tempMatrix = zeros(size(temp,1),5);
+           temp(temp==-1) = 5;
+           for j = 1:size(temp,1)
+               tempMatrix(j,temp(j)) = 1;
+           end
+           h{i} = tempMatrix';
+         
+       elseif classiferLabel(i) ==2
+           
+           svmStruct = classifer{i,1};
+           [temp,b] = svmpredict(testLabels,testInstances,svmStruct);
+           tempMatrix = zeros(size(temp,1),5);
+           temp(temp==-1) = 5;
+           for j = 1:size(temp,1)
+               tempMatrix(j,temp(j)) = 1;
+           end
+           h{i} = tempMatrix';
+       else
+           RFmodel = classifer{i,1};
+           [temp, votes, prediction_per_tree] = classRF_predict(testInstances,RFmodel);
+           tempMatrix = zeros(size(temp,1),5);
+           temp(temp==-1) = 5;
+           for j = 1:size(temp,1)
+               tempMatrix(j,temp(j)) = 1;
+           end
+           h{i} = tempMatrix';
+       end
+
+   
+       temp_result = classifyWeight(i).*h{i};
+       result = result + temp_result;
+   end
+   predictLabels = zeros(1,size(testInstances,1));
+   for i = 1:size(testInstances,1)
+       [a,b] = sort( result(:,i), 'descend' );
+       predictLabels(i) = b(1);
+   end
+   predictLabels(predictLabels==5) = -1;
+       
+
+       
+       
+       
+       
+    
+    
+    

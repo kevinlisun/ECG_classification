@@ -1,0 +1,11 @@
+function denoiseData = denoise_HF(multiLeadECG)
+[len nbrChl] = size(multiLeadECG);
+if len < nbrChl
+    multiLeadECG = multiLeadECG';
+    [len nbrChl] = size(multiLeadECG);
+end
+
+Len45Hz = round(45*len/(Fs/2));
+Len55Hz = round(55*len/(Fs/2));
+dctData = dct(multiLeadECG);
+tmp = [zeros(Len5Hz,nbrChl); dctData(Len5Hz+1:end,:)];
